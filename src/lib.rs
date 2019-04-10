@@ -1,8 +1,8 @@
 use std::io::{BufReader, BufWriter, Read, Write};
 //Block length in bytes AES is 128b block only
-const AES_BLOCKLEN: usize = 16;
+pub const AES_BLOCKLEN: usize = 16;
 // Key length in bytes
-const AES_KEYLEN: usize = 16;
+pub const AES_KEYLEN: usize = 16;
 const AES_KEY_EXP_SIZE: usize = 176;
 // The number of columns comprising a state in AES. This is a constant in AES. Value = 4
 const NB: usize = 4;
@@ -81,6 +81,7 @@ impl AesCtx {
     pub fn aes_ctx_set_iv(&mut self, iv: Block) {
         self.iv = iv;
     }
+    /// Encrypt buffer. Using "zeros padding" or "null padding"
     pub fn aes_cbc_encrypt_buffer<R: Read, W: Write>(&mut self, reader: R, writer: &mut W) -> std::io::Result<()> {
         let mut reader = BufReader::new(reader);
         let mut writer = BufWriter::new(writer);
@@ -93,7 +94,20 @@ impl AesCtx {
         }
         Ok(())
     }
+    /// Decrypt buffer without trim trailing zeros
     pub fn aes_cbc_decrypt_buffer<R: Read, W: Write>(&mut self, reader: R, writer: &mut W) -> std::io::Result<()> {
+        let mut reader = BufReader::new(reader);
+        let mut writer = BufWriter::new(writer);
+        let mut block: Block = Default::default();
+
+        while reader.read(&mut block)? != 0 {
+            let decrypted_block = self.aes_cbc_decrypt_block(block);
+            writer.write_all(&decrypted_block)?;
+        }
+        Ok(())
+    }
+    /// Decrypt buffer with trim trailing zeros
+    pub fn aes_cbc_decrypt_buffer_trim<R: Read, W: Write>(&mut self, reader: R, writer: &mut W) -> std::io::Result<()> {
         let mut reader = BufReader::new(reader);
         let mut writer = BufWriter::new(writer);
 
@@ -109,8 +123,7 @@ impl AesCtx {
         while buffer.last().unwrap() == &0u8 {
             buffer.pop();
         }
-        let to_write = buffer.drain(..).collect::<Vec<_>>();
-        writer.write_all(&to_write)?;
+        writer.write_all(buffer.as_slice())?;
         Ok(())
     }
     #[deprecated(since = "0.1.1", note = "Use better alternative aes_cbc_encrypt_buffer")]
@@ -456,14 +469,7 @@ mod tests {
         cipher.aes_ctx_set_iv(iv);
         let mut buf: Vec<u8> = Vec::new();
         cipher.aes_cbc_encrypt_buffer(source_text.as_slice(), &mut buf).unwrap();
-
-        let mut cipher = AesCtx::new(key);
-        cipher.aes_ctx_set_iv(iv);
-        let mut buf2: Vec<u8> = Vec::new();
-        cipher.aes_cbc_decrypt_buffer(buf.as_slice(), &mut buf2).unwrap();
-
-        assert_eq!(source_text, buf2);
-        // assert_eq!(result_text, buf);
+        assert_eq!(result_text, buf);
     }
 
     #[test]
